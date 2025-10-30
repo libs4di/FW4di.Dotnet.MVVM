@@ -35,6 +35,7 @@ public class MessengerTests
     {
         // Arrange
         string receivedMessage = null;
+
         Messenger.RegisterAsync<string>(async msg =>
         {
             await Task.Delay(50);
@@ -42,8 +43,7 @@ public class MessengerTests
         });
 
         // Act
-        Messenger.Send("Hello, Async World!");
-        await Task.Delay(100);
+        await Messenger.SendAsync("Hello, Async World!");
 
         // Assert
         Assert.AreEqual("Hello, Async World!", receivedMessage);

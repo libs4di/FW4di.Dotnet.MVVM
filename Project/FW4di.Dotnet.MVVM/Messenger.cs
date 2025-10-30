@@ -86,6 +86,52 @@ public static class Messenger
         }
     }
 
+    public static async Task SendAsync<TMessage>(TMessage message)
+    {
+        var messageType = typeof(TMessage);
+
+        // Sync handlers
+        if (handlerList.ContainsKey(messageType))
+        {
+            foreach (var handler in handlerList[messageType])
+            {
+                try
+                {
+                    if (handler is Action<TMessage> typedHandler)
+                    {
+                        typedHandler(message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Handler threw an exception: {ex.Message}");
+                }
+            }
+        }
+
+        // Async handlers - AWAIT them!
+        if (asyncHandlerList.ContainsKey(messageType))
+        {
+            var tasks = new List<Task>();
+            foreach (var asyncHandler in asyncHandlerList[messageType])
+            {
+                tasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        await asyncHandler(message);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Async handler threw an exception: {ex.Message}");
+                    }
+                }));
+            }
+
+            await Task.WhenAll(tasks);
+        }
+    }
+
     public static void Unregister<TMessage>(Action<TMessage> handler)
     {
         var messageType = typeof(TMessage);

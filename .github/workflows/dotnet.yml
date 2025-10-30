@@ -24,27 +24,16 @@ jobs:
       uses: actions/setup-dotnet@v3
       with:
         dotnet-version: 9.0.x
-        
-    - name: Clear NuGet cache (Windows)
+    
+    - name: Restore dependencies (Windows)
       if: runner.os == 'Windows'
-      run: dotnet nuget locals all --clear
-      continue-on-error: true
-      
-    - name: Clear NuGet cache (Unix)
-      if: runner.os != 'Windows'
-      run: dotnet nuget locals all --clear
-      continue-on-error: true
-      
-    - name: List NuGet sources
-      run: dotnet nuget list source
-      
-    - name: Restore dependencies
-      run: dotnet restore ${{ env.Solution_Name }} --disable-parallel --verbosity normal
+      run: dotnet restore ${{ env.Solution_Name }} --disable-parallel
       timeout-minutes: 10
-      env:
-        DOTNET_CLI_TELEMETRY_OPTOUT: 1
-        DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
-        
+      
+    - name: Restore dependencies (Unix)
+      if: runner.os != 'Windows'
+      run: dotnet restore ${{ env.Solution_Name }}
+      
     - name: Build solution
       run: dotnet build ${{ env.Solution_Name }} --configuration ${{ matrix.configuration }} --no-restore
       

@@ -67,8 +67,7 @@ public class AsyncRelayCommandTests
     public async Task ExecuteShouldRunExecuteDelegate()
     {
         Assert.IsFalse(commandExecuted);
-        await Task.Run(() => command.Execute(null));
-        await Task.Delay(200);
+        await command.ExecuteAsync();
         Assert.IsTrue(commandExecuted);
     }
 

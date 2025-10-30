@@ -78,6 +78,7 @@ public class AsyncRelayCommandTests
         bool canExecuteChangedRaised = false;
         command.CanExecuteChanged += (s, e) => canExecuteChangedRaised = true;
 
+        await Task.Delay(50);
         Assert.IsTrue(command.CanExecute(null));
 
         var executeTask = Task.Run(() => command.Execute(null));

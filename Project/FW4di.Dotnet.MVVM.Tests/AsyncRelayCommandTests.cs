@@ -76,20 +76,16 @@ public class AsyncRelayCommandTests
     public async Task ExecuteShouldDisableCanExecuteWhileRunning()
     {
         bool canExecuteChangedRaised = false;
+
         command.CanExecuteChanged += (s, e) => canExecuteChangedRaised = true;
+        Assert.IsTrue(command.CanExecute(null), "Initially CanExecute should be true.");
 
-        await Task.Delay(50);
-        Assert.IsTrue(command.CanExecute(null));
-
-        var executeTask = Task.Run(() => command.Execute(null));
-        await Task.Delay(50);
-
+        var executeTask = command.ExecuteAsync();
+        await Task.Delay(10);
         Assert.IsFalse(command.CanExecute(null), "CanExecute should be false while command is executing.");
         Assert.IsTrue(canExecuteChangedRaised, "CanExecuteChanged event should have been raised.");
 
         await executeTask;
-        await Task.Delay(50);
-
         Assert.IsTrue(command.CanExecute(null), "CanExecute should be true again after execution.");
     }
 

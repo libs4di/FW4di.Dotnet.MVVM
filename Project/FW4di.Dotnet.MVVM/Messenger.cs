@@ -7,154 +7,162 @@ Released under the terms of the GNU General Public License version 3 or later.
 namespace FW4di.Dotnet.MVVM;
 
 /// <summary>
-/// A simple type-safe publish–subscribe messenger for loose coupling between components.
+/// Type-safe publish–subscribe messenger for loose coupling between components.
 /// </summary>
 /// <remarks>
-/// This class allows both synchronous and asynchronous handlers for message types.
-/// It is cross-platform and does not depend on any UI framework.
-/// 
-/// <para>
-/// <b>Limitations:</b>
-/// - The internal dictionaries are not thread-safe; multi-threaded use may require locking or a concurrent collection.
-/// - Async handlers are executed fire-and-forget using <see cref="Task.Run"/>; exceptions are logged but not propagated.
-/// - Does not use weak references; subscribers must unregister manually to avoid memory leaks.
-/// </para>
+/// Supports both synchronous (<see cref="Action{T}"/>) and asynchronous (<see cref="Func{T, Task}"/>) handlers.
+/// Cross-platform, no UI dependencies.
+///
+/// <para><b>Behavior</b></para>
+/// <list type="bullet">
+///   <item><description><see cref="Send{TMessage}(TMessage)"/> invokes synchronous handlers inline and dispatches asynchronous handlers in a fire-and-forget manner.</description></item>
+///   <item><description><see cref="SendAsync{TMessage}(TMessage)"/> invokes synchronous handlers inline and <em>awaits</em> completion of all asynchronous handlers.</description></item>
+///   <item><description>Handler exceptions are swallowed to avoid preventing other handlers from running.</description></item>
+/// </list>
+///
+/// <para><b>Thread-safety</b></para>
+/// Registration/unregistration and snapshot creation are guarded by a lock; handler invocation runs outside the lock.
+/// No weak references are used, so subscribers must explicitly unregister to avoid memory leaks.
 /// </remarks>
 public static class Messenger
 {
-    private static readonly Dictionary<Type, List<Delegate>> handlerList = new();
-    private static readonly Dictionary<Type, List<Func<object, Task>>> asyncHandlerList = new();
+    private static readonly object _lock = new();
 
+    // Stores Action<TMessage> handlers
+    private static Dictionary<Type, List<Delegate>> handlerList = [];
+
+    // Stores Func<TMessage, Task> handlers (original delegates, not wrappers)
+    private static Dictionary<Type, List<Delegate>> asyncHandlerList = [];
+
+    /// <summary> Clears all registered handlers. Intended for tests. </summary>
+    public static void Reset()
+    {
+        lock (_lock)
+        {
+            handlerList = [];
+            asyncHandlerList = [];
+        }
+    }
+
+    /// <summary> Registers a synchronous handler for the specified message type. </summary>
     public static void Register<TMessage>(Action<TMessage> handler)
     {
-        var messageType = typeof(TMessage);
-        if (!handlerList.ContainsKey(messageType))
+        lock (_lock)
         {
-            handlerList[messageType] = new List<Delegate>();
+            if (!handlerList.TryGetValue(typeof(TMessage), out var list))
+                handlerList[typeof(TMessage)] = list = [];
+            list.Add(handler);
         }
-        handlerList[messageType].Add(handler);
     }
 
+    /// <summary> Registers an asynchronous handler for the specified message type. </summary>
     public static void RegisterAsync<TMessage>(Func<TMessage, Task> asyncHandler)
     {
-        var messageType = typeof(TMessage);
-        if (!asyncHandlerList.ContainsKey(messageType))
+        lock (_lock)
         {
-            asyncHandlerList[messageType] = new List<Func<object, Task>>();
+            if (!asyncHandlerList.TryGetValue(typeof(TMessage), out var list))
+                asyncHandlerList[typeof(TMessage)] = list = [];
+            list.Add(asyncHandler); // store original delegate (important for UnregisterAsync)
         }
-        asyncHandlerList[messageType].Add(async msg => await asyncHandler((TMessage)msg));
     }
 
+    /// <summary> Unregisters a previously registered synchronous handler. </summary>
+    public static void Unregister<TMessage>(Action<TMessage> handler)
+    {
+        lock (_lock)
+        {
+            if (handlerList.TryGetValue(typeof(TMessage), out var list))
+            {
+                list.Remove(handler);
+                if (list.Count == 0) handlerList.Remove(typeof(TMessage));
+            }
+        }
+    }
+
+    /// <summary> Unregisters a previously registered asynchronous handler. </summary>
+    public static void UnregisterAsync<TMessage>(Func<TMessage, Task> asyncHandler)
+    {
+        lock (_lock)
+        {
+            if (asyncHandlerList.TryGetValue(typeof(TMessage), out var list))
+            {
+                list.Remove(asyncHandler);
+                if (list.Count == 0) asyncHandlerList.Remove(typeof(TMessage));
+            }
+        }
+    }
+
+    /// <summary> Sends a message. Synchronous handlers run inline; asynchronous handlers are started fire-and-forget. </summary>
     public static void Send<TMessage>(TMessage message)
     {
-        var messageType = typeof(TMessage);
-
-        if (handlerList.ContainsKey(messageType))
+        // Snapshot to avoid holding the lock during invocation
+        List<Delegate> syncHandlers, asyncHandlers;
+        lock (_lock)
         {
-            foreach (var handler in handlerList[messageType])
+            handlerList.TryGetValue(typeof(TMessage), out syncHandlers);
+            asyncHandlerList.TryGetValue(typeof(TMessage), out asyncHandlers);
+            syncHandlers = syncHandlers != null ? [.. syncHandlers] : [.. Array.Empty<Delegate>()];
+            asyncHandlers = asyncHandlers != null ? [.. asyncHandlers] : [.. Array.Empty<Delegate>()];
+        }
+
+        // Synchronous: run inline
+        foreach (var d in syncHandlers)
+        {
+            if (d is Action<TMessage> a)
             {
-                try
-                {
-                    if (handler is Action<TMessage> typedHandler)
-                    {
-                        typedHandler(message);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Handler threw an exception: {ex.Message}");
-                }
+                try { a(message); } catch { /* don't stop others */ }
             }
         }
 
-        if (asyncHandlerList.ContainsKey(messageType))
+        // Asynchronous: fire-and-forget
+        foreach (var d in asyncHandlers)
         {
-            foreach (var asyncHandler in asyncHandlerList[messageType])
+            if (d is Func<TMessage, Task> fa)
             {
-                Task.Run(async () =>
+                _ = Task.Run(async () =>
                 {
-                    try
-                    {
-                        await asyncHandler(message);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Async handler threw an exception: {ex.Message}");
-                    }
+                    try { await fa(message).ConfigureAwait(false); } catch { /* swallow */ }
                 });
             }
         }
     }
 
+    /// <summary> Sends a message and awaits completion of all asynchronous handlers. </summary>
     public static async Task SendAsync<TMessage>(TMessage message)
     {
-        var messageType = typeof(TMessage);
-
-        // Sync handlers
-        if (handlerList.ContainsKey(messageType))
+        // Snapshot
+        List<Delegate> syncHandlers, asyncHandlers;
+        lock (_lock)
         {
-            foreach (var handler in handlerList[messageType])
+            handlerList.TryGetValue(typeof(TMessage), out syncHandlers);
+            asyncHandlerList.TryGetValue(typeof(TMessage), out asyncHandlers);
+            syncHandlers = syncHandlers != null ? [.. syncHandlers] : [.. Array.Empty<Delegate>()];
+            asyncHandlers = asyncHandlers != null ? [.. asyncHandlers] : [.. Array.Empty<Delegate>()];
+        }
+
+        // Synchronous: inline
+        foreach (var d in syncHandlers)
+        {
+            if (d is Action<TMessage> a)
             {
-                try
-                {
-                    if (handler is Action<TMessage> typedHandler)
-                    {
-                        typedHandler(message);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Handler threw an exception: {ex.Message}");
-                }
+                try { a(message); } catch { /* swallow */ }
             }
         }
 
-        // Async handlers - AWAIT them!
-        if (asyncHandlerList.ContainsKey(messageType))
+        // Asynchronous: start and await all
+        var tasks = new List<Task>(asyncHandlers.Count);
+        foreach (var d in asyncHandlers)
         {
-            var tasks = new List<Task>();
-            foreach (var asyncHandler in asyncHandlerList[messageType])
+            if (d is Func<TMessage, Task> fa)
             {
                 tasks.Add(Task.Run(async () =>
                 {
-                    try
-                    {
-                        await asyncHandler(message);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Async handler threw an exception: {ex.Message}");
-                    }
+                    try { await fa(message).ConfigureAwait(false); } catch { /* swallow */ }
                 }));
             }
-
-            await Task.WhenAll(tasks);
         }
-    }
 
-    public static void Unregister<TMessage>(Action<TMessage> handler)
-    {
-        var messageType = typeof(TMessage);
-        if (handlerList.ContainsKey(messageType))
-        {
-            handlerList[messageType].Remove(handler);
-            if (handlerList[messageType].Count == 0)
-            {
-                handlerList.Remove(messageType);
-            }
-        }
-    }
-
-    public static void UnregisterAsync<TMessage>(Func<TMessage, Task> asyncHandler)
-    {
-        var messageType = typeof(TMessage);
-        if (asyncHandlerList.ContainsKey(messageType))
-        {
-            asyncHandlerList[messageType].Remove(async msg => asyncHandler((TMessage)msg));
-            if (asyncHandlerList[messageType].Count == 0)
-            {
-                asyncHandlerList.Remove(messageType);
-            }
-        }
+        if (tasks.Count > 0)
+            await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 }

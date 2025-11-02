@@ -95,17 +95,17 @@ public static class Messenger
     /// <summary> Sends a message. Synchronous handlers run inline; asynchronous handlers are started fire-and-forget. </summary>
     public static void Send<TMessage>(TMessage message)
     {
-        // Snapshot to avoid holding the lock during invocation
+        // Snapshot to avoid holding the lock
         List<Delegate> syncHandlers, asyncHandlers;
         lock (_lock)
         {
             handlerList.TryGetValue(typeof(TMessage), out syncHandlers);
             asyncHandlerList.TryGetValue(typeof(TMessage), out asyncHandlers);
-            syncHandlers = syncHandlers != null ? [.. syncHandlers] : [.. Array.Empty<Delegate>()];
-            asyncHandlers = asyncHandlers != null ? [.. asyncHandlers] : [.. Array.Empty<Delegate>()];
+            syncHandlers = syncHandlers != null ? [.. syncHandlers] : [];
+            asyncHandlers = asyncHandlers != null ? [.. asyncHandlers] : [];
         }
 
-        // Synchronous: run inline
+        // SYNC: inline
         foreach (var d in syncHandlers)
         {
             if (d is Action<TMessage> a)
@@ -114,15 +114,20 @@ public static class Messenger
             }
         }
 
-        // Asynchronous: fire-and-forget
+        // ASYNC: fire-and-forget WITHOUT Task.Run
         foreach (var d in asyncHandlers)
         {
             if (d is Func<TMessage, Task> fa)
             {
-                _ = Task.Run(async () =>
+                try
                 {
-                    try { await fa(message).ConfigureAwait(false); } catch { /* swallow */ }
-                });
+                    // start it; do not await
+                    _ = fa(message);
+                }
+                catch
+                {
+                    // swallow sync-throwing delegates
+                }
             }
         }
     }
@@ -136,29 +141,33 @@ public static class Messenger
         {
             handlerList.TryGetValue(typeof(TMessage), out syncHandlers);
             asyncHandlerList.TryGetValue(typeof(TMessage), out asyncHandlers);
-            syncHandlers = syncHandlers != null ? [.. syncHandlers] : [.. Array.Empty<Delegate>()];
-            asyncHandlers = asyncHandlers != null ? [.. asyncHandlers] : [.. Array.Empty<Delegate>()];
+            syncHandlers = syncHandlers != null ? [.. syncHandlers] : [];
+            asyncHandlers = asyncHandlers != null ? [.. asyncHandlers] : [];
         }
 
-        // Synchronous: inline
+        // SYNC: inline
         foreach (var d in syncHandlers)
         {
             if (d is Action<TMessage> a)
             {
-                try { a(message); } catch { /* swallow */ }
+                try { a(message); } catch { }
             }
         }
 
-        // Asynchronous: start and await all
+        // ASYNC: start and await directly (no Task.Run)
         var tasks = new List<Task>(asyncHandlers.Count);
         foreach (var d in asyncHandlers)
         {
             if (d is Func<TMessage, Task> fa)
             {
-                tasks.Add(Task.Run(async () =>
+                try
                 {
-                    try { await fa(message).ConfigureAwait(false); } catch { /* swallow */ }
-                }));
+                    tasks.Add(fa(message));
+                }
+                catch
+                {
+                    // if delegate throws synchronously, ignore and don't add a task
+                }
             }
         }
 

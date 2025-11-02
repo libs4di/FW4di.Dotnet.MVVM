@@ -130,23 +130,33 @@ public class MessengerTests
     public async Task SendAsyncHandlerShouldRunIndependently()
     {
         // Arrange
+        // Use a TaskCompletionSource to deterministically wait for the async handler
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         bool syncExecuted = false;
-        bool asyncExecuted = false;
 
+        // Register a synchronous handler that should execute immediately
         Messenger.Register<string>(_ => syncExecuted = true);
+
+        // Register an asynchronous handler that signals completion via the TCS
         Messenger.RegisterAsync<string>(async _ =>
         {
-            await Task.Delay(50);
-            asyncExecuted = true;
-        });
+            // Yield to ensure asynchronous continuation (non-blocking start)
+            await Task.Yield();
+            tcs.TrySetResult(true);
+        }); 
 
         // Act
+        // Sending should trigger both handlers:
+        //  - the sync handler runs inline
+        //  - the async handler runs independently
         Messenger.Send("Async Test");
-        await Task.Delay(100);
 
         // Assert
-        Assert.IsTrue(syncExecuted);
-        Assert.IsTrue(asyncExecuted);
+        // Verify that the synchronous handler ran immediately
+        Assert.IsTrue(syncExecuted, "Synchronous handler did not run inline.");
+
+        // Wait for the asynchronous handler to complete, with a safe timeout
+        await tcs.Task.WaitAsync(TimeSpan.FromSeconds(1));
     }
 
     [TestMethod]

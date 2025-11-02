@@ -12,8 +12,7 @@ public class MessengerTests
     [TestInitialize]
     public void Setup()
     {
-        typeof(Messenger).GetField("_handlers", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-                         ?.SetValue(null, new Dictionary<Type, List<Delegate>>());
+        Messenger.Reset();
     }
 
     [TestMethod]

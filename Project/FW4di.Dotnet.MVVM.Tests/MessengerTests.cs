@@ -143,7 +143,7 @@ public class MessengerTests
             // Yield to ensure asynchronous continuation (non-blocking start)
             await Task.Yield();
             tcs.TrySetResult(true);
-        });
+        }); 
 
         // Act
         // Sending should trigger both handlers:

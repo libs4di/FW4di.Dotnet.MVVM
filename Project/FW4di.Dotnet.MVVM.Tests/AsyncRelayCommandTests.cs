@@ -30,7 +30,7 @@ public class AsyncRelayCommandTests
     [TestMethod]
     public void ConstructorShouldThrowExceptionWhenExecuteIsNull()
     {
-        Assert.ThrowsException<ArgumentNullException>(() => new AsyncRelayCommand(null));
+        Assert.Throws<ArgumentNullException>(() => new AsyncRelayCommand(null));
     }
 
     [TestMethod]

@@ -48,7 +48,7 @@ public class AsyncRelayCommandGenericTests
             throw new InvalidOperationException("Test Exception");
         });
 
-        var exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => command.ExecuteAsync(5));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => command.ExecuteAsync(5));
 
         Assert.AreEqual("Test Exception", exception.Message);
     }

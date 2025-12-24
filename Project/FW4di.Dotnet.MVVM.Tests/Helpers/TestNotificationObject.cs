@@ -8,11 +8,9 @@ namespace FW4di.Dotnet.MVVM.Tests.Helpers;
 
 public class TestNotificationObject : NotificationObject
 {
-    public string testProperty;
-
     public string TestProperty
     {
-        get => testProperty;
-        set => SetProperty(ref testProperty, value);
+        get;
+        set => SetProperty(ref field, value);
     }
 }

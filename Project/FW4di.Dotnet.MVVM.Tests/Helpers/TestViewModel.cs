@@ -8,26 +8,24 @@ namespace FW4di.Dotnet.MVVM.Tests.Helpers;
 
 public class TestViewModel : TestNotificationObject
 {
-    private int age;
     public int Age
     {
-        get => age;
+        get;
         set
         {
-            if (SetProperty(ref age, value))
+            if (SetProperty(ref field, value))
             {
                 ValidateProperty(nameof(Age));
             }
         }
     }
 
-    private string name;
     public string Name
     {
-        get => name;
+        get;
         set
         {
-            if (SetProperty(ref name, value))
+            if (SetProperty(ref field, value))
             {
                 ValidateProperty(nameof(Name));
             }
